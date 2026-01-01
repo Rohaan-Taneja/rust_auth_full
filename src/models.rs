@@ -23,8 +23,9 @@ pub enum UserRole {
 }
 
 // Now your User struct works
-#[derive(Queryable, Selectable, Serialize, Deserialize, Debug)]
+#[derive(Queryable, QueryableByName, Selectable, Serialize, Deserialize, Debug , Clone)]
 #[diesel(table_name = users)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Users {
     pub id: Uuid,
     pub name: String,

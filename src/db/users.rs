@@ -9,10 +9,10 @@ pub struct UserRepository<'a> {
 }
 
 // implementing user related functions
-// impl UserRepository {
+// impl UserRepository<'a> {
 
 //     // function to give db connection access to this repository/manager 
-//     pub fn new(&mut db_connection: PgConnection) -> UserRepository {
+//     pub fn new(& mut db_connection: PgConnection) -> UserRepository {
         
 //         UserRepository {
 //             db_con: db_connection,

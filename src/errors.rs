@@ -1,11 +1,10 @@
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use core::fmt;
 use serde::{Deserialize, Serialize};
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorResponse {
@@ -19,9 +18,8 @@ impl fmt::Display for ErrorResponse {
     }
 }
 
-
 // error messages enums
-#[derive(Debug, Clone, Copy, PartialEq , Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum ErrorMessage {
     EmptyPassword,
     ExceededMaxPasswordLength(usize),
@@ -32,8 +30,9 @@ pub enum ErrorMessage {
     WrongCredentials,
     InvalidJwt,
     UserNotAuthenticated,
+    PaawordNotValidated,
+    InvalidHashFormat,
 }
-
 
 // error messages in strings
 impl ToString for ErrorMessage {
@@ -50,16 +49,21 @@ impl ToString for ErrorMessage {
             ErrorMessage::WrongCredentials => "email or password is incorrect".to_string(),
             ErrorMessage::InvalidJwt => "JWT token is invalid".to_string(),
             ErrorMessage::UserNotAuthenticated => "user is not authenticated".to_string(),
+            ErrorMessage::PaawordNotValidated => {
+                "password not validated , wrong password".to_string()
+            }
+            ErrorMessage::InvalidHashFormat => {
+                "incoming hashed password is not of correct format".to_string()
+            }
         }
     }
 }
 
-
 // http error struct , if which we will show error
-#[derive(Debug, Serialize , Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct HttpError {
     pub message: String,
-    #[serde(with = "http_serde::status_code")] //add serialie trai to the statuscode struct
+    #[serde(with = "http_serde::status_code")] //add serialie trait to the statuscode struct
     pub status: StatusCode,
 }
 
@@ -69,6 +73,20 @@ impl HttpError {
         HttpError {
             message: message.into(),
             status,
+        }
+    }
+
+    pub fn not_found(message: impl Into<String>) -> Self {
+        HttpError {
+            message: message.into(),
+            status: StatusCode::NOT_FOUND,
+        }
+    }
+
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        HttpError {
+            message: message.into(),
+            status: StatusCode::UNAUTHORIZED,
         }
     }
 

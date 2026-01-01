@@ -1,10 +1,13 @@
+#![allow(clippy::to_string_trait_impl)]
 mod config;
 mod db;
 mod dtos;
 mod errors;
 mod models;
 mod schema;
-use axum::{Router, http::{HeaderValue, Method, header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE}}, serve::Listener};
+mod utils;
+mod middleware;
+use axum::{Extension, Router, http::{HeaderValue, Method, header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE}}, serve::Listener};
 use diesel::{
     Connection, PgConnection,
     r2d2::{ConnectionManager, Pool},
@@ -46,34 +49,39 @@ async fn main() {
         .build(manager)
         .expect("failer to create database pool");
 
-    // creating app state
-    // let app = AppState { db: pool };
+   
 
     // cors setup
-    // let cors = CorsLayer::new()
-    //     .allow_origin("*".parse::<HeaderValue>().unwrap())
-    //     .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE])
-    //     .allow_credentials(true)
-    //     .allow_methods([Method::GET, Method::POST, Method::PUT]);
+    let cors = CorsLayer::new()
+        .allow_origin("*".parse::<HeaderValue>().unwrap())
+        .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE])
+        // .allow_credentials(true)
+        .allow_methods([Method::GET, Method::POST, Method::PUT]);
+
+
+     // creating app state
+    let app_state = AppState { db: pool };
+
 
     // building the router
-    let app = Router::new();
+    let app = Router::new()
+        .layer(Extension(app_state))
+        .layer(cors.clone());
 
     // server setup
-    let port = env::var("PORT").unwrap_or_else( |_| "8080".to_string());
+    let port = env::var("PORT").unwrap_or_else( |_| "3000".to_string());
     let host = env::var("HOST").unwrap_or_else( |_| "127.0.0.1".to_string());
     let addr = format!("{}:{}", host, port);
 
-    tracing::info!("starting the server at  {}", port);
+    println!("this is the addr {}" , addr);
+    // wrting info in console
+    tracing::info!("starting the server at  {}", addr);
 
     // now os will assign specific host and port to our app
-    // let listener = tokio::net::TcpListener::bind(addr)
-    //     .await
-    //     .expect("failed to start server");
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("failed to start server");
 
-    // axum::serve(listener, app).await.expect("failed to create axum server");
-
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 
 }
