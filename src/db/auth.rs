@@ -21,7 +21,7 @@ impl<'a> AuthRepository<'a> {
     }
 
     // getting/funding user on the basis of user_id(primary key)
-    pub fn get_user(&mut self, user_id: Uuid) -> Result<Users, HttpError> {
+    pub async fn get_user(&mut self, user_id: Uuid) -> Result<Users, HttpError> {
         users::table
             .find(user_id)
             .select(Users::as_select())

@@ -1,7 +1,7 @@
 use axum::{
     Json,
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::{self, IntoResponse, Response},
 };
 use core::fmt;
 use serde::{Deserialize, Serialize};
@@ -111,6 +111,14 @@ impl HttpError {
         });
 
         (self.status, json_response).into_response()
+    }
+}
+
+impl IntoResponse for HttpError {
+
+    fn into_response(self) -> Response {
+        // here we are constructing tuple and hence calling into response of tuple , so tuple of (status and json message) to reponse of httperror
+        (self.status, Json(self.message)).into_response()
     }
 }
 

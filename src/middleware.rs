@@ -69,8 +69,6 @@ pub async fn auth(
         Uuid::parse_str(&token_data).map_err(|_| HttpError::unauthorized("Invalid Token"))?;
 
     // calling db user function to get the user struct from user id(uuid)
-    // then getting result , use match for final user struct and return with next
-
     let mut db_pool = app_state.db.get().map_err(|_| {
         HttpError::new(
             "error in getting pg connection".to_string(),
@@ -80,10 +78,12 @@ pub async fn auth(
 
     let mut auth_repo = AuthRepository::new(&mut db_pool);
 
-    let user_data = auth_repo.get_user(user_id).map_err(|err| err)?;
+    let user_data = auth_repo.get_user(user_id).await.map_err(|e| e)?;
 
+    // adding data to the req haspmap 
     req.extensions_mut().insert(JwtAuthMiddleware {
         user: user_data.clone(),
     });
+    // moving to the next request , (await because rew will give future , so we have to await)
     Ok(next.run(req).await)
 }

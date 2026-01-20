@@ -38,3 +38,15 @@ pub struct Users {
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
 }
+
+#[derive(Insertable)]
+#[diesel(table_name = users)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct NewUser {
+    pub name : String,
+    pub email: String,
+    pub verified : bool,
+    pub password: String,
+    pub verification_token: Option<String>,
+    pub token_expires_at: Option<DateTime<Utc>>,
+}

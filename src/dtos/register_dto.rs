@@ -6,13 +6,13 @@ use crate::models::{UserRole, Users};
 #[derive(Validate, Serialize, Clone , Deserialize)]
 pub struct RegisterUser {
     #[validate(length(min = 1, message = "name is required"))]
-    name: String,
+    pub name: String,
 
     #[validate(email)] // it will use regex and check for email patter
-    email: String,
+    pub email: String,
 
     #[validate(length(min = 6, message = " passwrod length should be min 6 characters"))]
-    password: String,
+    pub password: String,
 
     #[validate(length(
         min = 6,
@@ -23,5 +23,6 @@ pub struct RegisterUser {
         message = "confirm password should be equal to password"
     ))]
     #[serde(rename = "confirmPassword")]
-    confirm_password: String,
+    pub confirm_password: String,
 }
+

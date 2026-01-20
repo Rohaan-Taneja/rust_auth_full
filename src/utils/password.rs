@@ -9,8 +9,9 @@ use argon2::{
         rand_core::{Error, OsRng},
     },
 };
+use rand::Rng;
 
-use crate::errors::ErrorMessage;
+use crate::errors::{ErrorMessage, HttpError};
 
 // maxxing the size of the password
 const MAX_PASSWORD_LENGTH: usize = 64;
@@ -63,8 +64,17 @@ pub fn validate_pas(
 
     let res = Argon2::default()
         .verify_password(pass.as_bytes(), &parsed_hash)
-        .map_or( false, |_|true); //when we want to do something on error(false) and on correct value (true value) 
+        .map_or(false, |_| true); //when we want to do something on error(false) and on correct value (true value) 
 
     return Ok(res);
-    
+}
+
+/**
+ * a utility function genrate a 6 digit random number
+ */
+pub fn generate_otp() -> String {
+    // 6 digit random integer (1 lak to 10 lakh -1)
+    let random_number = rand::rng().random_range(100000..=999999);
+
+    return random_number.to_string();
 }

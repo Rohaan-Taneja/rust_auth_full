@@ -27,4 +27,3 @@ diesel::table! {
         updated_at -> Nullable<Timestamptz>,
     }
 }
-

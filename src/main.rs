@@ -1,22 +1,33 @@
+#![allow(warnings)]
 #![allow(clippy::to_string_trait_impl)]
 mod config;
 mod db;
 mod dtos;
 mod errors;
+mod handler;
+mod mail;
+mod middleware;
 mod models;
 mod schema;
 mod utils;
-mod middleware;
-use axum::{Extension, Router, http::{HeaderValue, Method, header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE}}, serve::Listener};
+use axum::{
+    Extension, Router,
+    http::{
+        HeaderValue, Method,
+        header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
+    },
+    serve::Listener,
+};
+mod routes;
 use diesel::{
     Connection, PgConnection,
     r2d2::{ConnectionManager, Pool},
 };
 use tower_http::cors::CorsLayer;
 
-use crate::config::Config;
+use crate::{config::Config, routes::create_router};
 use dotenvy::dotenv;
-use std::env;
+use std::{clone, env, sync::Arc};
 
 // type for data base pool/collection_of_db_connection
 pub type DbPool = Pool<ConnectionManager<PgConnection>>;
@@ -45,11 +56,9 @@ async fn main() {
     // creating pool of db connection
     let manager = ConnectionManager::<PgConnection>::new(config.database_url);
     let pool = Pool::builder()
-        .max_size(10)
+        .max_size(3)
         .build(manager)
         .expect("failer to create database pool");
-
-   
 
     // cors setup
     let cors = CorsLayer::new()
@@ -58,22 +67,19 @@ async fn main() {
         // .allow_credentials(true)
         .allow_methods([Method::GET, Method::POST, Method::PUT]);
 
-
-     // creating app state
+    // creating app state
     let app_state = AppState { db: pool };
 
-
+    let a = app_state.clone();
     // building the router
-    let app = Router::new()
-        .layer(Extension(app_state))
-        .layer(cors.clone());
+    let app = create_router(Arc::new(app_state.clone())).layer(cors.clone());
 
     // server setup
-    let port = env::var("PORT").unwrap_or_else( |_| "3000".to_string());
-    let host = env::var("HOST").unwrap_or_else( |_| "127.0.0.1".to_string());
+    let port = env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let addr = format!("{}:{}", host, port);
 
-    println!("this is the addr {}" , addr);
+    println!("this is the addr {}", addr);
     // wrting info in console
     tracing::info!("starting the server at  {}", addr);
 
@@ -83,6 +89,4 @@ async fn main() {
         .expect("failed to start server");
 
     axum::serve(listener, app).await.unwrap();
-
 }
-
