@@ -7,6 +7,18 @@ pub mod sql_types {
 }
 
 diesel::table! {
+    user_email_verifications (id) {
+        id -> Uuid,
+        #[max_length = 255]
+        user_email -> Varchar,
+        #[max_length = 6]
+        otp -> Varchar,
+        expires_at -> Nullable<Timestamptz>,
+        used -> Bool,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::UserType;
 
@@ -27,3 +39,5 @@ diesel::table! {
         updated_at -> Nullable<Timestamptz>,
     }
 }
+
+diesel::allow_tables_to_appear_in_same_query!(user_email_verifications, users,);

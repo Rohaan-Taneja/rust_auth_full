@@ -69,14 +69,8 @@ pub async fn auth(
         Uuid::parse_str(&token_data).map_err(|_| HttpError::unauthorized("Invalid Token"))?;
 
     // calling db user function to get the user struct from user id(uuid)
-    let mut db_pool = app_state.db.get().map_err(|_| {
-        HttpError::new(
-            "error in getting pg connection".to_string(),
-            StatusCode::INTERNAL_SERVER_ERROR,
-        )
-    })?;
-
-    let mut auth_repo = AuthRepository::new(&mut db_pool);
+    let mut db_pool = app_state.db.clone();
+    let mut auth_repo = AuthRepository::new(db_pool);
 
     let user_data = auth_repo.get_user(user_id).await.map_err(|e| e)?;
 

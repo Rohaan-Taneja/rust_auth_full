@@ -1,0 +1,11 @@
+after login , logout 
+
+we have to create password reset feature 
+
+we have to create notes cretion , update , read all and delete 
+
+and add pagination to it 
+
+
+
+in signup screen , if non verified user tries to sign up(with same email and pass ) again , we will let him do , we will send him otp

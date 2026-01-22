@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json, Router, http::StatusCode, response::IntoResponse, routing::post};
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
 use validator::Validate;
 
@@ -11,6 +11,7 @@ use crate::{
     AppState,
     db::{UserRepository, auth::AuthRepository},
     dtos::{
+        login_dto::loggedInUser,
         register_dto::{self, RegisterUser},
         verify_email_dto::{self, VerifyEmailDTO},
     },
@@ -30,6 +31,7 @@ pub fn auth_handler() -> Router {
     Router::new()
         .route("/register", post(register_user))
         .route("/verify-email", post(verify_user))
+        .route("/login", post(login_user))
 }
 
 /**
@@ -38,6 +40,7 @@ pub fn auth_handler() -> Router {
  * user details in register user dto format details
  * shared app state (containg db connection) ,
  * data will be coming in json format , we need data in struct format ,
+ * we will save new user in users table and otp details in user_email_verification table , to verify user email
  */
 pub async fn register_user(
     Extension(app_state): Extension<Arc<AppState>>,
@@ -50,38 +53,38 @@ pub async fn register_user(
         .map_err(|e| HttpError::bad_request(e.to_string()))?;
 
     // otp verification
-    let verification_token = generate_otp(); // otp/verification token , will send on email
+    let otp = generate_otp(); // otp/verification token , will send on email
     let exp_duration = Utc::now() + Duration::minutes(5); // 5 minutes time to validate the otp 
 
     let hashed_pass =
         password::hash_pass(&body.password).map_err(|e| HttpError::bad_request(e.to_string()))?;
 
-    let mut db_conn = app_state.db.get().map_err(|_| {
-        HttpError::new(
-            "error is getting db connection",
-            StatusCode::INTERNAL_SERVER_ERROR,
-        )
-    })?;
+    // we will create a clone of arc referece of the
+    let mut db_conn = app_state.db.clone();
 
     // initilizing user repo and giving db con so as to use its functions
-    let mut user_repo = UserRepository::new(&mut db_conn);
+    let mut user_repo = AuthRepository::new(db_conn);
 
     let saved_user = user_repo
-        .save_user(
-            &body.name,
-            &body.email,
-            hashed_pass,
-            &verification_token,
-            exp_duration,
-        )
+        .save_new_user(&body.name, &body.email, hashed_pass)
         .await;
 
     match saved_user {
         Ok(user) => {
+            // save user otp details in user_emai_verification table
+            let res = user_repo
+                .add_new_user_to_user_verification_table(
+                    otp.to_string(),
+                    user.email.to_string(),
+                    exp_duration,
+                )
+                .await
+                .map_err(|e| e);
+
             // sending otp verification rew to the user
             let ans = construct_mail(
                 user.email.clone(),
-                &[verification_token.to_string(), user.name.to_string()], //[otp , name_of_the_user]
+                &[otp.to_string(), user.name.to_string()], //[otp , name_of_the_user]
                 "otp_verification",
             )
             .await
@@ -119,21 +122,29 @@ pub async fn verify_user(
     body.validate()
         .map_err(|e| HttpError::new(e.to_string(), StatusCode::BAD_REQUEST))?;
 
-    let mut db_con = app_state
-        .db
-        .get()
-        .map_err(|e| HttpError::new(e.to_string(), StatusCode::INTERNAL_SERVER_ERROR))?;
-    let mut auth_repo = AuthRepository::new(&mut db_con);
+    let mut db_con = app_state.db.clone();
+    let mut auth_repo = AuthRepository::new(db_con);
 
     // string uuidd to uuid conversion
     let mut userId = Uuid::parse_str(&body.user_id)
         .map_err(|e| HttpError::new(e.to_string(), StatusCode::INTERNAL_SERVER_ERROR))?;
 
-    // finding user from the db
+    // finding user from the db for rhe user id came in with req body
     let user = auth_repo.get_user(userId).await.map_err(|e| e)?;
 
+    // getting new_users user_email_verification status
+    let user_verification_data = auth_repo
+        .get_user_verification_status(user.email.clone())
+        .await
+        .map_err(|e| e)?;
+
+    // if otp already used , then user is already verified , take to login state
+    if user_verification_data.used {
+        HttpError::bad_request("user already verified".to_string());
+    }
+
     // extracting option<data time > to datatime
-    let exp_time = &user.token_expires_at.ok_or_else(|| {
+    let exp_time = &user_verification_data.expires_at.ok_or_else(|| {
         HttpError::new(
             "error while extracting expiration time",
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -145,41 +156,63 @@ pub async fn verify_user(
     // if exp > current (if time is there) => check for otp equal or not
     // first we will return error , then do for corret
 
-    // if verification token has expired
+    // if otp has expired
     if exp_time < &Utc::now() {
-        HttpError::new(
-            "verification token has expred".to_string(),
-            StatusCode::BAD_REQUEST,
-        );
+        HttpError::new("otp has expred".to_string(), StatusCode::BAD_REQUEST);
     }
 
     // getting token from the user object as string
-    let saved_verification_token = &user.verification_token.ok_or_else(|| {
-        HttpError::new(
-            "error in user saved verification token",
-            StatusCode::INTERNAL_SERVER_ERROR,
-        )
-    })?;
+    let saved_otp = &user_verification_data.otp;
 
-    // if token not euqal
-    if saved_verification_token != &body.otp {
-        HttpError::new(
-            "verification token not equal".to_string(),
-            StatusCode::BAD_REQUEST,
-        );
+    // if otp not euqal , show error
+    if saved_otp != &body.otp {
+        HttpError::new("otp not equal".to_string(), StatusCode::BAD_REQUEST);
     }
 
     // till here , exp is okay and otp are equal
+    // we will create auth_token/jwt token for the user verification
     let auth_tokens = create_token(&body.user_id).map_err(|e| {
         HttpError::new(
-            "error while gerating auth tokens",
+            "error while generating auth tokens",
             StatusCode::INTERNAL_SERVER_ERROR,
         )
     })?;
 
-    // // we need to update the user verification status and save auth jwt token in db also
+    // token exp time will be 24 hours
+    let exp_time = Utc::now() + Duration::hours(24);
+
+    // updating otp used status to true
+    auth_repo
+        .update_new_user_otp_status(&user.email)
+        .await
+        .map_err(|e| e)?;
+
+    auth_repo
+        .update_jwt_token_to_user(&user.email, &auth_tokens, exp_time)
+        .await
+        .map_err(|e| e)?;
+
+    // // we need to update the user verification status to used and save auth jwt token in db also
 
     Ok((StatusCode::CREATED, Json(auth_tokens)))
 }
 
-// now create route for this and then check the basic flow , if it is working or not , then make other controller and function
+
+/**
+ * @inputs => we will get app state and login data as input
+ * 
+ * @result => we will login user and return auth token and basic  user details to the user
+ */
+pub async fn login_user(
+    Extension(app_state): Extension<Arc<AppState>>,
+    Json(login_info): Json<loggedInUser>,
+) -> Result< impl IntoResponse, HttpError> {
+    // we will get user name and password
+    // we will send to the db to check if it is okay or not ?
+    // if no , we will send unauthorized request
+    // if yes , we will call utils/token function with user id to create token 
+    // we will then cal update token db function to save tokens and exp
+    // and then response okay and send tokens
+    
+    Ok("hello".to_string())
+}
