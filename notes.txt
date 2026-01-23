@@ -1,7 +1,14 @@
-after login , logout 
+after login , logout ✅ 
 
+middle ware ka code dekhna and understand krna hai
+loggedn in user will have token , so fronten will send these token in header with every req , so we will send it to auth middleware
+ and  get user from there 
 we have to create password reset feature 
 
+
+home page apis 
+home page will show user details name , email etc 
+there we will think and create basic crud notes taking and storing app
 we have to create notes cretion , update , read all and delete 
 
 and add pagination to it 

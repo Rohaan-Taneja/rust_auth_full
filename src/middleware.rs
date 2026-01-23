@@ -20,14 +20,12 @@ use crate::{
 #[derive(Serialize, Deserialize, Debug, Clone)]
 // this is the resp struct that we will return/attach to req header
 pub struct JwtAuthMiddleware {
-    user: Users,
+    pub user: Users,
 }
 
 /**
  * inputs
- * cokie jar containing cookie structs
  * app state
- *
  * this function is extracting tokens from cookie or auth header
  * then getting user from the token
  * then finding the user struct from the db using userid
@@ -41,24 +39,20 @@ pub async fn auth(
 ) -> Result<impl IntoResponse, HttpError> {
     // step-1
     // extracting token either from cookies or authorization header
-    let cookie = cookie_jar
-        .get("token") // getting the cookie value and converting it into string
-        .map(|cookie| cookie.value().to_string())
-        .or_else(|| {
-            req.headers()
-                .get("AUTHORIZATION")
-                .and_then(|auth_header| auth_header.to_str().ok())
-                .and_then(|auth_value| {
-                    if auth_value.starts_with("Bearer") {
-                        Some(auth_value[7..].to_owned())
-                    } else {
-                        None
-                    }
-                })
+    let token_data = req
+        .headers()
+        .get("AUTHORIZATION")
+        .and_then(|auth_header| auth_header.to_str().ok())
+        .and_then(|auth_value| {
+            if auth_value.starts_with("Bearer") {
+                Some(auth_value[7..].to_owned())
+            } else {
+                None
+            }
         });
 
     // if token id then ok else throw error token not found
-    let token = cookie.ok_or_else(|| HttpError::unauthorized("token not found"))?;
+    let token = token_data.ok_or_else(|| HttpError::unauthorized("token not found"))?;
 
     // calling decode function to decode token and get user id from it
     let token_data =
@@ -74,7 +68,7 @@ pub async fn auth(
 
     let user_data = auth_repo.get_user(user_id).await.map_err(|e| e)?;
 
-    // adding data to the req haspmap 
+    // adding data to the req haspmap
     req.extensions_mut().insert(JwtAuthMiddleware {
         user: user_data.clone(),
     });

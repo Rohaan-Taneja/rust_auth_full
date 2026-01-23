@@ -11,9 +11,11 @@ use uuid::Uuid;
 use crate::dtos::login_dto::loggedInUser;
 use crate::models::{NewUser, NewUserEmailVerifications, UserEmailVerifications};
 use crate::schema::{user_email_verifications, users};
+use crate::utils::password::{hash_pass, validate_pas};
 use crate::{errors::HttpError, models::Users};
 use diesel::result::Error;
 
+// parkinglol/pool of db connection
 pub type PgPool = Pool<ConnectionManager<PgConnection>>;
 // manager which have db connection and have all the function impl for auth related things ,
 //  sign up , signin etc'
@@ -22,6 +24,7 @@ pub struct AuthRepository {
 }
 
 // implementing all the auth functions
+// this struct will get onwership/clone of arc referece pointer of the db_connection
 impl<'a> AuthRepository {
     pub fn new(con: PgPool) -> Self {
         AuthRepository { db_con: con }
@@ -29,7 +32,10 @@ impl<'a> AuthRepository {
 
     // getting/funding user on the basis of user_id(primary key)
     pub async fn get_user(&mut self, user_id: Uuid) -> Result<Users, HttpError> {
-        // getting conn from pool ownership here
+        // we are asking for 1 db connection from pool
+        // the con variable will get 1 pooled db connection temporarily
+        // after the function ends the connection will automatically goes back to the pool
+        // connection is just temporarily give and will automatically taked back after the variable scope ends
         let mut con = self.db_con.get().map_err(|e| {
             HttpError::new(
                 "error is connection pool".to_string(),
@@ -37,7 +43,7 @@ impl<'a> AuthRepository {
             )
         })?;
 
-        // putting diesel db call in asyn environment , so that it does not bock thread
+        // putting diesel db call in async environment , so that it does not bock thread
         let res = tokio::task::spawn_blocking(move || {
             users::table
                 .find(user_id)
@@ -261,25 +267,73 @@ impl<'a> AuthRepository {
         Ok(true)
     }
 
-
-
     /**
-     * @inputs => we will get email and password 
+     * @inputs => we will get email and password
      * @response => either user is verified user , we will return user id else unauthorized user , we will send unauthoried error
      */
-    pub async fn verify_login_user(login_details : loggedInUser)->Result<String , HttpError>{
-
-        // we will get user from email 
+    pub async fn verify_login_user(
+        &mut self,
+        email: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Result<String, HttpError> {
+        // we will get user from email
         // if does not exist , show unauthoried error
-        // if exist , we will check for verified ,
-        //  if not verified, show error , user not verified , go to signup screen , will see this flow
 
         //  we will havw incoming pass and compare it with the saved hashed password
         // if not equal , we will show wrong password error , or unauthorized
-        // if equal , verified , we will return okay and user id 
-        // 
-        // 
+        // now we will check for verified ,
+        //  if not verified, show error , user not verified , go to signup screen , will see this flow
 
-        Ok("user".to_string())
+        // if equal , verified , we will return okay and user id
+
+        let mut conn = self
+            .db_con
+            .get()
+            .map_err(|e| HttpError::server_error("error in getting db ppol"))?;
+
+        let user_email = email.into();
+        let pass = password.into();
+
+        // finding user from from the users table
+        let res = tokio::task::spawn_blocking(move || {
+            users::table
+                .filter(users::email.eq(user_email.clone()))
+                .first::<Users>(&mut conn)
+        })
+        .await
+        .map_err(|e| HttpError {
+            message: e.to_string(),
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+        })?
+        .map_err(|e| match e {
+            Error::NotFound => HttpError {
+                message: "user not found".to_string(),
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+            },
+            _ => HttpError::server_error("error while fetching users table data"),
+        })?;
+
+        // check password equal
+        let validate_pass = validate_pas(&pass, &res.password).map_err(|e|HttpError::new(e.to_string() , StatusCode::INTERNAL_SERVER_ERROR))?;
+
+        // password validation is false , wrong password
+        if !validate_pass {
+             return Err(HttpError::unauthorized(
+                "wrong password",
+            ));
+            
+        }
+        // now pass and email is correct but
+        // user not verified
+        if !res.verified {
+            return Err(HttpError::unauthorized(
+                "users email is not verfied , please sign and verify email",
+            ));
+        }
+
+        // now user pass ,email and verifed everything is okayy
+        // we will return user id in response
+
+        Ok(res.id.to_string())
     }
 }

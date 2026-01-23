@@ -132,6 +132,11 @@ pub async fn verify_user(
     // finding user from the db for rhe user id came in with req body
     let user = auth_repo.get_user(userId).await.map_err(|e| e)?;
 
+    // if verified user tris to verify again , we will return this okay status
+    if user.verified {
+        return Ok( (StatusCode::ACCEPTED ,  Json("user already verified".to_string())));
+    }
+
     // getting new_users user_email_verification status
     let user_verification_data = auth_repo
         .get_user_verification_status(user.email.clone())
@@ -197,22 +202,58 @@ pub async fn verify_user(
     Ok((StatusCode::CREATED, Json(auth_tokens)))
 }
 
-
 /**
  * @inputs => we will get app state and login data as input
- * 
+ *
  * @result => we will login user and return auth token and basic  user details to the user
  */
 pub async fn login_user(
     Extension(app_state): Extension<Arc<AppState>>,
     Json(login_info): Json<loggedInUser>,
-) -> Result< impl IntoResponse, HttpError> {
+) -> Result<impl IntoResponse, HttpError> {
     // we will get user name and password
     // we will send to the db to check if it is okay or not ?
     // if no , we will send unauthorized request
-    // if yes , we will call utils/token function with user id to create token 
+    // if yes , we will call utils/token function with user id to create token
     // we will then cal update token db function to save tokens and exp
     // and then response okay and send tokens
-    
-    Ok("hello".to_string())
+
+    // validate incoming data
+    login_info.validate().map_err(|e| {
+        HttpError::bad_request("data not according to the login dto format".to_string())
+    })?;
+
+    // trasnferring ownershit to our vars
+    let user_email = login_info.email.to_string();
+    let user_pass = login_info.password.to_string();
+
+    // cloned the app state arc pointer
+    let db_pool = app_state.db.clone();
+
+    // created auth repo instance , so that we call its db function
+    let mut auth_repo = AuthRepository::new(db_pool);
+
+    // check for user authenticity and verify else will show unauthorized error
+    let logged_in_user = auth_repo
+        .verify_login_user(&user_email, &user_pass)
+        .await
+        .map_err(|e| e)?;
+
+    // creating auth tokens for the user
+    let auth_token = create_token(&logged_in_user).map_err(|e| {
+        HttpError::new(
+            "error while creating used auth tokens",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+    })?;
+
+    let token_exp = Utc::now() + Duration::hours(24);
+
+    // storing the auth tokens in the users table
+    auth_repo
+        .update_jwt_token_to_user(&user_email, &auth_token, token_exp)
+        .await
+        .map_err(|e| e)?;
+
+    Ok((StatusCode::CREATED , auth_token))
 }

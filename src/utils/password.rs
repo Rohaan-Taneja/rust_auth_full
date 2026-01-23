@@ -20,7 +20,7 @@ const MAX_PASSWORD_LENGTH: usize = 64;
 
 pub fn hash_pass(pass: impl Into<String>) -> Result<String, ErrorMessage> {
     let pass = pass.into();
-    let salt = SaltString::generate(&mut OsRng);
+    let salt = SaltString::generate(&mut OsRng); //random salt everytime
 
     if pass.is_empty() {
         return Err(ErrorMessage::EmptyPassword);
