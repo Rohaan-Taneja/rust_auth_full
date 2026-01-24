@@ -54,35 +54,46 @@ pub async fn register_user(
 
     // otp verification
     let otp = generate_otp(); // otp/verification token , will send on email
-    let exp_duration = Utc::now() + Duration::minutes(5); // 5 minutes time to validate the otp 
+    let exp_duration = Utc::now() + Duration::minutes(5); // 5 minutes exp time to validate the otp 
 
     let hashed_pass =
         password::hash_pass(&body.password).map_err(|e| HttpError::bad_request(e.to_string()))?;
 
-    // we will create a clone of arc referece of the
+
+    println!("time now beofre db pool clone {:?}" , Utc::now());
+    // we will create a clone of referec
     let mut db_conn = app_state.db.clone();
+
+    println!("time now after db pool clone {:?}" , Utc::now());
 
     // initilizing user repo and giving db con so as to use its functions
     let mut user_repo = AuthRepository::new(db_conn);
+
+    println!("time now after creating repo {:?}" , Utc::now());
 
     let saved_user = user_repo
         .save_new_user(&body.name, &body.email, hashed_pass)
         .await;
 
+    println!("time now after saving user {:?}" , Utc::now());
+
     match saved_user {
         Ok(user) => {
             // save user otp details in user_emai_verification table
-            let res = user_repo
+            user_repo
                 .add_new_user_to_user_verification_table(
                     otp.to_string(),
                     user.email.to_string(),
                     exp_duration,
                 )
                 .await
-                .map_err(|e| e);
+                .map_err(|e| e)?;
 
-            // sending otp verification rew to the user
-            let ans = construct_mail(
+            println!("time now after saving otp details {:?}" , Utc::now());
+
+            // sending otp verification req to the user
+            // if we could not able to send email , error will show up
+            construct_mail(
                 user.email.clone(),
                 &[otp.to_string(), user.name.to_string()], //[otp , name_of_the_user]
                 "otp_verification",
@@ -90,12 +101,8 @@ pub async fn register_user(
             .await
             .map_err(|e| HttpError::new(e.message.to_string(), e.status))?;
 
-            if !ans {
-                HttpError::new(
-                    "could not send the emial".to_string(),
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                );
-            }
+            println!("time now after sending email req {:?}" , Utc::now());
+
             // and return response , we may return user id in the frontend , so that when req comes back , we have user_id to find user and verify the verification token
             // we are returning a tuple as return type
             // for tuple intoresponse is already implemeted
@@ -145,7 +152,7 @@ pub async fn verify_user(
 
     // if otp already used , then user is already verified , take to login state
     if user_verification_data.used {
-        HttpError::bad_request("user already verified".to_string());
+        return Err(HttpError::bad_request("user already verified".to_string()));
     }
 
     // extracting option<data time > to datatime
@@ -163,7 +170,7 @@ pub async fn verify_user(
 
     // if otp has expired
     if exp_time < &Utc::now() {
-        HttpError::new("otp has expred".to_string(), StatusCode::BAD_REQUEST);
+        return Err(HttpError::new("otp has expred".to_string(), StatusCode::BAD_REQUEST));
     }
 
     // getting token from the user object as string
@@ -171,7 +178,7 @@ pub async fn verify_user(
 
     // if otp not euqal , show error
     if saved_otp != &body.otp {
-        HttpError::new("otp not equal".to_string(), StatusCode::BAD_REQUEST);
+        return Err(HttpError::new("otp not equal".to_string(), StatusCode::BAD_REQUEST));
     }
 
     // till here , exp is okay and otp are equal

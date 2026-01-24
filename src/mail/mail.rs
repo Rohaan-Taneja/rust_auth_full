@@ -28,7 +28,6 @@ pub async fn construct_mail(
     // getting the email data(subject and content)
     let email_data = render_email(email_type.clone(), variables).map_err(|e| e)?;
 
-    println!("this is the email data {:?}" , email_data);
     // this will send email to the user(reciever) and return true or errror
     let result = send_mail(
         &reciever,

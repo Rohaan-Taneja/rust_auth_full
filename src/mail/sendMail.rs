@@ -1,6 +1,7 @@
 use std::env;
 
 use axum::http::StatusCode;
+use chrono::Utc;
 use http_serde::option::status_code;
 use lettre::{
     Message, SmtpTransport, Transport,
@@ -30,10 +31,8 @@ pub async fn send_mail(
     let smtp_server = env::var("SMTP_SERVER")
         .map_err(|e| HttpError::new(e.to_string(), StatusCode::INTERNAL_SERVER_ERROR))?;
 
-    // let pass = env::var("SMTP_PASS").unwrap();
     let pass = env::var("SMTP_PASS").unwrap();
 
-    println!("these are the envs {} {} {}", &from, &smtp_server, &pass);
     // constructing email to send
     let email = Message::builder()
         .from(Mailbox::new(
@@ -49,7 +48,6 @@ pub async fn send_mail(
         .body(email_content.clone())
         .unwrap();
 
-    println!("this is the email {:?}", email);
     let creds = Credentials::new(from.clone(), pass.clone());
 
     // opening a remote server to send email
@@ -58,16 +56,15 @@ pub async fn send_mail(
         .credentials(creds)
         .build();
 
-    println!("this is the mailer {:?}", mailer);
-
-    // this sending functionality will block man thread , so we will put it in a waiting tread , when it will be completed then we will put it back
+    // this sending functionality will block main thread , so we will put it in a waiting tread , when it will be completed then we will put it back
     // letter crate is not by default asyn await
     // so we will put this blocking req in a async /await enviroment
     // and when it will done , we will be notified and we will trasnfer
+    println!("time now before sending email in function only {:?}" , Utc::now());
     let result = tokio::task::spawn_blocking(move || mailer.send(&email))
         .await
         .map_err(|e| HttpError::new(e.to_string(), StatusCode::INTERNAL_SERVER_ERROR))?; // sending the email to the user
-    
+    println!("time now after sending the mail in function only {:?}" , Utc::now());
     match result {
         Ok(_) => {
             println!("we have sent the mail ");

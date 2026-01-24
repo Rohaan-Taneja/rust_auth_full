@@ -3,35 +3,28 @@
 
 use axum::http::StatusCode;
 use chrono::*;
-use diesel::{prelude::*, r2d2::{ConnectionManager, Pool}};
+use diesel::{
+    prelude::*,
+    r2d2::{ConnectionManager, Pool},
+};
 
 use crate::{
+    DbPool,
     errors::HttpError,
     models::{NewUser, Users},
     schema::users::{self},
 };
 
-pub type db_pool = Pool<ConnectionManager<PgConnection>>;
-// a manager which holds db connection
 pub struct UserRepository {
-    pub db_con:  db_pool,
+    pub db_con: DbPool,
 }
-
 
 // implementing user related functions
 impl UserRepository {
     // function to give db pool access to this repository/manager
-    pub fn new(db_connection: db_pool) -> Self {
+    pub fn new(db_connection: DbPool) -> Self {
         UserRepository {
             db_con: db_connection,
         }
     }
-
-
-
-
-
-
-
-    
 }

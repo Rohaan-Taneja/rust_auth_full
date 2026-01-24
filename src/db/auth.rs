@@ -8,6 +8,7 @@ use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool};
 use uuid::Uuid;
 
+use crate::DbPool;
 use crate::dtos::login_dto::loggedInUser;
 use crate::models::{NewUser, NewUserEmailVerifications, UserEmailVerifications};
 use crate::schema::{user_email_verifications, users};
@@ -15,18 +16,17 @@ use crate::utils::password::{hash_pass, validate_pas};
 use crate::{errors::HttpError, models::Users};
 use diesel::result::Error;
 
-// parkinglol/pool of db connection
-pub type PgPool = Pool<ConnectionManager<PgConnection>>;
+
 // manager which have db connection and have all the function impl for auth related things ,
 //  sign up , signin etc'
 pub struct AuthRepository {
-    pub db_con: PgPool,
+    pub db_con: DbPool,
 }
 
 // implementing all the auth functions
 // this struct will get onwership/clone of arc referece pointer of the db_connection
 impl<'a> AuthRepository {
-    pub fn new(con: PgPool) -> Self {
+    pub fn new(con: DbPool) -> Self {
         AuthRepository { db_con: con }
     }
 

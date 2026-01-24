@@ -29,6 +29,7 @@ use crate::{config::Config, routes::create_router};
 use dotenvy::dotenv;
 use std::{clone, env, sync::Arc};
 
+// parkinglot/pool of db connection
 // type for data base pool/collection_of_db_connection
 pub type DbPool = Pool<ConnectionManager<PgConnection>>;
 
