@@ -19,6 +19,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    user_reset_pass_validations (id) {
+        id -> Uuid,
+        #[max_length = 255]
+        user_email -> Varchar,
+        #[max_length = 100]
+        hashed_reset_token -> Varchar,
+        expires_at -> Nullable<Timestamptz>,
+        used -> Bool,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::UserType;
 
@@ -40,4 +52,8 @@ diesel::table! {
     }
 }
 
-diesel::allow_tables_to_appear_in_same_query!(user_email_verifications, users,);
+diesel::allow_tables_to_appear_in_same_query!(
+    user_email_verifications,
+    user_reset_pass_validations,
+    users,
+);

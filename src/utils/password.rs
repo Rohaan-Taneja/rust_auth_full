@@ -16,8 +16,7 @@ use crate::errors::{ErrorMessage, HttpError};
 // maxxing the size of the password
 const MAX_PASSWORD_LENGTH: usize = 64;
 
-// hashing the function
-
+// hashing function
 pub fn hash_pass(pass: impl Into<String>) -> Result<String, ErrorMessage> {
     let pass = pass.into();
     let salt = SaltString::generate(&mut OsRng); //random salt everytime

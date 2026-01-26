@@ -12,7 +12,7 @@ use crate::{
 pub fn create_router(app_state: Arc<AppState>) -> Router {
     let api_route = Router::new()
         .nest("/auth", auth_handler())
-        .nest("/users", users_handler().layer(middleware::from_fn(auth))) // routes which will have auth middleware protection
+        .nest("/user", users_handler().layer(middleware::from_fn(auth))) // routes which will have auth middleware protection
         .layer(TraceLayer::new_for_http()) //see difference ki ky aa rha hai , with or without me
         .layer(Extension(app_state));
 

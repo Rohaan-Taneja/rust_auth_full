@@ -32,7 +32,6 @@ pub struct JwtAuthMiddleware {
  * the creting a jwtAuthMiddleware struct , adding user to it and returning it
  */
 pub async fn auth(
-    cookie_jar: CookieJar,
     Extension(app_state): Extension<Arc<AppState>>,
     mut req: Request,
     next: Next,

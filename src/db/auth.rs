@@ -336,4 +336,9 @@ impl<'a> AuthRepository {
 
         Ok(res.id.to_string())
     }
+
+
+
+    // send otp to non-logged in user
+
 }

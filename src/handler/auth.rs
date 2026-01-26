@@ -59,23 +59,22 @@ pub async fn register_user(
     let hashed_pass =
         password::hash_pass(&body.password).map_err(|e| HttpError::bad_request(e.to_string()))?;
 
-
-    println!("time now beofre db pool clone {:?}" , Utc::now());
+    println!("time now beofre db pool clone {:?}", Utc::now());
     // we will create a clone of referec
     let mut db_conn = app_state.db.clone();
 
-    println!("time now after db pool clone {:?}" , Utc::now());
+    println!("time now after db pool clone {:?}", Utc::now());
 
     // initilizing user repo and giving db con so as to use its functions
     let mut user_repo = AuthRepository::new(db_conn);
 
-    println!("time now after creating repo {:?}" , Utc::now());
+    println!("time now after creating repo {:?}", Utc::now());
 
     let saved_user = user_repo
         .save_new_user(&body.name, &body.email, hashed_pass)
         .await;
 
-    println!("time now after saving user {:?}" , Utc::now());
+    println!("time now after saving user {:?}", Utc::now());
 
     match saved_user {
         Ok(user) => {
@@ -89,7 +88,7 @@ pub async fn register_user(
                 .await
                 .map_err(|e| e)?;
 
-            println!("time now after saving otp details {:?}" , Utc::now());
+            println!("time now after saving otp details {:?}", Utc::now());
 
             // sending otp verification req to the user
             // if we could not able to send email , error will show up
@@ -101,7 +100,7 @@ pub async fn register_user(
             .await
             .map_err(|e| HttpError::new(e.message.to_string(), e.status))?;
 
-            println!("time now after sending email req {:?}" , Utc::now());
+            println!("time now after sending email req {:?}", Utc::now());
 
             // and return response , we may return user id in the frontend , so that when req comes back , we have user_id to find user and verify the verification token
             // we are returning a tuple as return type
@@ -141,7 +140,10 @@ pub async fn verify_user(
 
     // if verified user tris to verify again , we will return this okay status
     if user.verified {
-        return Ok( (StatusCode::ACCEPTED ,  Json("user already verified".to_string())));
+        return Ok((
+            StatusCode::ACCEPTED,
+            Json("user already verified".to_string()),
+        ));
     }
 
     // getting new_users user_email_verification status
@@ -170,7 +172,10 @@ pub async fn verify_user(
 
     // if otp has expired
     if exp_time < &Utc::now() {
-        return Err(HttpError::new("otp has expred".to_string(), StatusCode::BAD_REQUEST));
+        return Err(HttpError::new(
+            "otp has expred".to_string(),
+            StatusCode::BAD_REQUEST,
+        ));
     }
 
     // getting token from the user object as string
@@ -178,7 +183,10 @@ pub async fn verify_user(
 
     // if otp not euqal , show error
     if saved_otp != &body.otp {
-        return Err(HttpError::new("otp not equal".to_string(), StatusCode::BAD_REQUEST));
+        return Err(HttpError::new(
+            "otp not equal".to_string(),
+            StatusCode::BAD_REQUEST,
+        ));
     }
 
     // till here , exp is okay and otp are equal
@@ -211,7 +219,6 @@ pub async fn verify_user(
 
 /**
  * @inputs => we will get app state and login data as input
- *
  * @result => we will login user and return auth token and basic  user details to the user
  */
 pub async fn login_user(
@@ -262,5 +269,28 @@ pub async fn login_user(
         .await
         .map_err(|e| e)?;
 
-    Ok((StatusCode::CREATED , auth_token))
+    Ok((StatusCode::CREATED, auth_token))
 }
+
+/**
+ * In this function we will send otp to the incoming user email
+ * @input => we will get user email as input
+ * @ result => we will create , save otp in the user_verification table and sent it to the user email and return bool after sending
+ */
+pub async fn send_otp() {}
+
+/**
+ * this function is to verify the otp of the user/email(not loggedIn user/no_auth_token user) ,(stading on the login page) who has forget his pass and now wants to reset his password
+ * we will verify his email via sent otp , here
+ * @inputs => we will get otp and email
+ * @result => we will verify his otp and return true or false
+ */
+pub async fn verify_forget_pass_emails_otp() {}
+
+/**
+ * this function is to update the pass of the user/email(no loggedIn user/no_auth_token user) , who has verified his email via otp
+ * we will update the pass of the email
+ * @input => email and new_pass
+ * @result => we will return new auth tokens to the user
+ */
+pub async fn save_new_pass() {}
