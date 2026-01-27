@@ -31,6 +31,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    user_reset_password_email_verifications (id) {
+        id -> Uuid,
+        #[max_length = 255]
+        user_email -> Varchar,
+        #[max_length = 6]
+        otp -> Varchar,
+        expires_at -> Nullable<Timestamptz>,
+        used -> Bool,
+        created_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::UserType;
 
@@ -55,5 +68,6 @@ diesel::table! {
 diesel::allow_tables_to_appear_in_same_query!(
     user_email_verifications,
     user_reset_pass_validations,
+    user_reset_password_email_verifications,
     users,
 );

@@ -1,4 +1,4 @@
--- table to verify user email 
+-- table to verify new user email 
 
 CREATE TABLE "user_email_verifications" (
     id UUID PRIMARY KEY DEFAULT uuid_generate_V4(),

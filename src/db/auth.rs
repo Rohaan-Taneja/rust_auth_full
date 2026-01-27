@@ -10,12 +10,18 @@ use uuid::Uuid;
 
 use crate::DbPool;
 use crate::dtos::login_dto::loggedInUser;
-use crate::models::{NewUser, NewUserEmailVerifications, UserEmailVerifications};
-use crate::schema::{user_email_verifications, users};
+use crate::models::{
+    NewUser, NewUserEmailVerifications, NewUserResetPasswordEmailVerifications,
+    NewUserResetPasswordValidation, UserEmailVerifications, UserResetPasswordEmailVerifications,
+    UserResetPasswordValidations,
+};
+use crate::schema::{
+    user_email_verifications, user_reset_pass_validations, user_reset_password_email_verifications,
+    users,
+};
 use crate::utils::password::{hash_pass, validate_pas};
 use crate::{errors::HttpError, models::Users};
 use diesel::result::Error;
-
 
 // manager which have db connection and have all the function impl for auth related things ,
 //  sign up , signin etc'
@@ -60,6 +66,33 @@ impl<'a> AuthRepository {
         })?;
 
         Ok(res)
+    }
+
+    pub async fn get_user_from_email(
+        &mut self,
+        email: impl Into<String>,
+    ) -> Result<Users, HttpError> {
+        let user_email = email.into();
+
+        let mut con = self
+            .db_con
+            .get()
+            .map_err(|e| HttpError::new(e.to_string(), StatusCode::INTERNAL_SERVER_ERROR))?;
+
+        let user_struct = tokio::task::spawn_blocking(move || {
+            users::table
+                .filter(users::email.eq(user_email))
+                .first::<Users>(&mut con)
+        })
+        .await
+        .map_err(|e| HttpError::new(e.to_string(), StatusCode::INTERNAL_SERVER_ERROR))?
+        .map_err(|e| match e {
+            // db call error
+            Error::NotFound => HttpError::new("user not found", StatusCode::NOT_FOUND),
+            _ => HttpError::server_error("internal server error in diesel"),
+        })?;
+
+        Ok(user_struct)
     }
 
     /**
@@ -118,7 +151,7 @@ impl<'a> AuthRepository {
 
         let mut con = self.db_con.get().map_err(|e| {
             HttpError::new(
-                "error is connection pool".to_string(),
+                "error in connection pool".to_string(),
                 StatusCode::INTERNAL_SERVER_ERROR,
             )
         })?;
@@ -185,6 +218,99 @@ impl<'a> AuthRepository {
         })?;
 
         Ok(true)
+    }
+
+    /**
+     * in this we will store existing user otp details to user_reset_password_email_verifications table
+     * this users want to reset his password , so first we willl send him otp to his email , to validate authetic user
+     * @inputs => user_email , otp and exp
+     * @result => save user details to the table to verify later
+     */
+    pub async fn add_otp_details_to_user_reset_password_verification_table(
+        &mut self,
+        otp: impl Into<String>,
+        email: impl Into<String>,
+        expiry: DateTime<Utc>,
+    ) -> Result<bool, HttpError> {
+        let ver_otp = otp.into();
+        let ver_email = email.into();
+
+        // we will pool of connection mamnagers and we will get connection manager
+        let mut con = self.db_con.get().map_err(|e| {
+            HttpError::new(
+                "error is connection pool".to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
+
+        // created given value struct , now we will give it to the save function
+        // it will add other values(automated genrated value) and save it in the db
+        let new_data = NewUserResetPasswordEmailVerifications {
+            user_email: ver_email,
+            otp: ver_otp,
+            expires_at: Some(expiry),
+        };
+
+        // added db call to the tokio async enviromenet , now the db call wont block main thread
+        let saved_user_verification_data = tokio::task::spawn_blocking(move || {
+            diesel::insert_into(user_reset_password_email_verifications::table)
+                .values(&new_data)
+                .returning(UserResetPasswordEmailVerifications::as_returning())
+                .get_result(&mut con)
+        })
+        .await
+        .map_err(|e| HttpError {
+            message: e.to_string(),
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+        })?
+        .map_err(|e| HttpError {
+            message: e.to_string(),
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+        })?;
+
+        Ok(true)
+    }
+
+    /**
+     * in this function we will return back the non loggedn in user email verification status who  wants to reset his password
+     * we will take user id as input
+     * @result => we will fetch the user_email_verification data/status
+     */
+    pub async fn get_user_reset_password_email_verification_status(
+        &mut self,
+        userr_email: impl Into<String>,
+    ) -> Result<UserResetPasswordEmailVerifications, HttpError> {
+        let email = userr_email.into();
+
+        let mut con = self.db_con.get().map_err(|e| {
+            HttpError::new(
+                "error is connection pool".to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
+
+        let result = tokio::task::spawn_blocking(move || {
+            // otp data which is not used yet used and latestly created
+            // if multiple times is clicked , still we will get the row which is lastest created
+            user_reset_password_email_verifications::table
+                .filter(user_reset_password_email_verifications::user_email.eq(&email))
+                .filter(user_reset_password_email_verifications::used.eq(false))
+                .order_by(user_reset_password_email_verifications::created_at.desc())
+                .first::<UserResetPasswordEmailVerifications>(&mut con)
+        })
+        .await
+        .map_err(|e| HttpError {
+            message: e.to_string(),
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+        })?
+        .map_err(|e| {
+            HttpError::new(
+                "error while getting user email verification status".to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
+
+        Ok(result)
     }
 
     /**
@@ -314,14 +440,12 @@ impl<'a> AuthRepository {
         })?;
 
         // check password equal
-        let validate_pass = validate_pas(&pass, &res.password).map_err(|e|HttpError::new(e.to_string() , StatusCode::INTERNAL_SERVER_ERROR))?;
+        let validate_pass = validate_pas(&pass, &res.password)
+            .map_err(|e| HttpError::new(e.to_string(), StatusCode::INTERNAL_SERVER_ERROR))?;
 
         // password validation is false , wrong password
         if !validate_pass {
-             return Err(HttpError::unauthorized(
-                "wrong password",
-            ));
-            
+            return Err(HttpError::unauthorized("wrong password"));
         }
         // now pass and email is correct but
         // user not verified
@@ -337,8 +461,134 @@ impl<'a> AuthRepository {
         Ok(res.id.to_string())
     }
 
+    /**
+     * this service will save user reset token details
+     * when non-logged-in user want to reste password , so after otp verification , we will create a reset-hashed-token and save it in rese_pass_validation table
+     * so that on the net step , when user sends updated pass , we can validate user with this token
+     * @inputs , hashed_reset_token , expiry & user_email
+     * @return => on successfully adding the details , we will return true else error
+     */
+    pub async fn save_reset_token_details(
+        &mut self,
+        user_email: impl Into<String>,
+        hashed_token: impl Into<String>,
+        exp: DateTime<Utc>,
+    ) -> Result<bool, HttpError> {
+        let mut con = self.db_con.get().map_err(|e| {
+            HttpError::new(
+                "getting error in taking db con".to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
 
+        let email = user_email.into();
+        let hashed_r_token = hashed_token.into();
+        let new_reset_password_validation_details = NewUserResetPasswordValidation {
+            user_email: email.to_string(),
+            hashed_reset_token: hashed_r_token,
+            expires_at: Some(exp),
+        };
 
-    // send otp to non-logged in user
+        tokio::task::spawn_blocking(move || {
+            diesel::insert_into(user_reset_pass_validations::table)
+                .values(&new_reset_password_validation_details)
+                .execute(&mut con)
+        })
+        .await
+        .map_err(|e| HttpError {
+            message: e.to_string(),
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+        })?
+        .map_err(|e| HttpError {
+            message: e.to_string(),
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+        })?;
+        Ok(true)
+    }
 
+    /**
+     * in this function we will return user_reset_password_validation data
+     * we will take user email as input
+     * @result => we will fetch the user_reset_password_validation data/status
+     */
+    pub async fn get_user_reset_password_validations_details(
+        &mut self,
+        userr_email: impl Into<String>,
+    ) -> Result<UserResetPasswordValidations, HttpError> {
+        let email = userr_email.into();
+
+        let mut con = self.db_con.get().map_err(|e| {
+            HttpError::new(
+                "error is connection pool".to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
+
+        let result = tokio::task::spawn_blocking(move || {
+            // otp data which is not used yet used and latestly created
+            // if multiple times is clicked , still we will get the row which is lastest created
+            user_reset_pass_validations::table
+                .filter(user_reset_pass_validations::user_email.eq(&email))
+                .filter(user_reset_pass_validations::used.eq(false))
+                .first::<UserResetPasswordValidations>(&mut con)
+        })
+        .await
+        .map_err(|e| HttpError {
+            message: e.to_string(),
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+        })?
+        .map_err(|e| {
+            HttpError::new(
+                "error while getting user email reset password status".to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
+
+        Ok(result)
+    }
+
+    pub async fn update_user_password_and_jwt_token_and_exp(
+        &mut self,
+        user_email: impl Into<String>,
+        new_pass: impl Into<String>,
+        jwt_token: impl Into<String>,
+        expiry: DateTime<Utc>,
+    ) -> Result<bool, HttpError> {
+        let email = user_email.into();
+        let new_password = new_pass.into();
+        let token = jwt_token.into();
+
+        let mut con = self.db_con.get().map_err(|e| {
+            HttpError::new(
+                "error is connection pool".to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
+
+        let result = tokio::task::spawn_blocking(move || {
+            // otp data which is not used yet used and latestly created
+            // if multiple times is clicked , still we will get the row which is lastest create
+            diesel::update(users::table)
+                .filter(users::email.eq(email))
+                .set((
+                    users::verification_token.eq(token),
+                    users::password.eq(new_password),
+                    users::token_expires_at.eq(Some(expiry)),
+                ))
+                .execute(&mut con)
+        })
+        .await
+        .map_err(|e| HttpError {
+            message: e.to_string(),
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+        })?
+        .map_err(|e| {
+            HttpError::new(
+                "error while getting user email reset password status".to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
+
+        Ok(true)
+    }
 }

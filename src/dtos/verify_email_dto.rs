@@ -9,6 +9,9 @@ pub struct VerifyEmailDTO{
     pub otp : String ,
     
     #[validate(length(min= 1 , message = "user id length  should be greater than 1"))]
-    pub user_id : String
+    pub user_id : Option<String>,
+
+    #[validate(email)]
+    pub user_email : Option<String>
 
 }
