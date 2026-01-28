@@ -530,6 +530,7 @@ impl<'a> AuthRepository {
             user_reset_pass_validations::table
                 .filter(user_reset_pass_validations::user_email.eq(&email))
                 .filter(user_reset_pass_validations::used.eq(false))
+                .order_by(user_reset_pass_validations::created_at.desc())
                 .first::<UserResetPasswordValidations>(&mut con)
         })
         .await
@@ -547,6 +548,9 @@ impl<'a> AuthRepository {
         Ok(result)
     }
 
+    /**
+     * after successfully verifying the user from reset token , we will update user new password , jwt tokens and  reset token used = true statsus
+     */
     pub async fn update_user_password_and_jwt_token_and_exp(
         &mut self,
         user_email: impl Into<String>,
@@ -566,29 +570,30 @@ impl<'a> AuthRepository {
         })?;
 
         let result = tokio::task::spawn_blocking(move || {
-            // otp data which is not used yet used and latestly created
-            // if multiple times is clicked , still we will get the row which is lastest create
-            diesel::update(users::table)
-                .filter(users::email.eq(email))
-                .set((
-                    users::verification_token.eq(token),
-                    users::password.eq(new_password),
-                    users::token_expires_at.eq(Some(expiry)),
-                ))
-                .execute(&mut con)
+            con.transaction::<_, diesel::result::Error, _>(|conn| {
+                diesel::update(users::table)
+                    .filter(users::email.eq(&email))
+                    .set((
+                        users::verification_token.eq(&token),
+                        users::password.eq(&new_password),
+                        users::token_expires_at.eq(Some(expiry)),
+                    ))
+                    .execute(conn)?;
+
+                diesel::update(user_reset_pass_validations::table)
+                    .filter(user_reset_pass_validations::user_email.eq(&email))
+                    .set(user_reset_pass_validations::used.eq(true))
+                    .execute(conn)?;
+
+                Ok(())
+            })
         })
         .await
-        .map_err(|e| HttpError {
-            message: e.to_string(),
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?
-        .map_err(|e| {
-            HttpError::new(
-                "error while getting user email reset password status".to_string(),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            )
-        })?;
+        .map_err(|_| HttpError::server_error("thread panicked"))?
+        .map_err(|_| HttpError::server_error("db transaction failed"))?;
 
         Ok(true)
     }
+
+    
 }

@@ -58,7 +58,8 @@ pub struct UserResetPasswordValidations {
     pub user_email : String,
     pub hashed_reset_token : String,
     pub expires_at : Option<DateTime<Utc>>,
-    pub used : bool
+    pub used : bool,
+    pub created_at : Option<DateTime<Utc>>
 }
 
 #[derive(Queryable, QueryableByName, Selectable, Serialize, Deserialize, Debug, Clone)]

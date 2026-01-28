@@ -9,7 +9,7 @@ use validator::Validate;
 
 use crate::{
     AppState,
-    db::{UserRepository, auth::AuthRepository},
+    db::{auth::AuthRepository},
     dtos::{
         login_dto::loggedInUser,
         non_logged_in_user_reset_password_dto::NonLoggedInUserResetPasswordDTO,

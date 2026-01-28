@@ -27,6 +27,7 @@ diesel::table! {
         hashed_reset_token -> Varchar,
         expires_at -> Nullable<Timestamptz>,
         used -> Bool,
+        created_at -> Nullable<Timestamptz>,
     }
 }
 
