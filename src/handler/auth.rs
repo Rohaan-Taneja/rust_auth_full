@@ -9,12 +9,16 @@ use validator::Validate;
 
 use crate::{
     AppState,
-    db::{auth::AuthRepository},
+    db::{
+        auth::{AuthRepository, SavedUserType},
+        users,
+    },
     dtos::{
         login_dto::loggedInUser,
         non_logged_in_user_reset_password_dto::NonLoggedInUserResetPasswordDTO,
         register_dto::{self, RegisterUser},
         send_otp::SendOtpDTO,
+        user_ok_response_dto::UserOkResponsesDTO,
         verify_email_dto::{self, VerifyEmailDTO},
     },
     errors::HttpError,
@@ -25,12 +29,18 @@ use crate::{
         },
         sendMail::{self, send_mail},
     },
+    models::Users,
     utils::{
         self,
         password::{self, generate_otp, hash_pass, validate_pas},
         token::create_token,
     },
 };
+
+pub enum userType {
+    NewUser,
+    ExistingNonVerifiedSavedUser,
+}
 
 pub fn auth_handler() -> Router {
     Router::new()
@@ -43,7 +53,7 @@ pub fn auth_handler() -> Router {
 // api routes for reset-pass for non logged-in user
 pub fn reset_pass_handler() -> Router {
     Router::new()
-        .route("/send-otp", post(send_otp))//to send otp and register user_reset_password_email_verifications
+        .route("/send-otp", post(send_otp)) //to send otp and register user_reset_password_email_verifications
         .route("/verify-otp", post(verify_forget_pass_emails_otp)) //to verify otp and save reset_token in user_reset_pass_validations
         .route("/save-new-password", post(save_new_pass)) // to verify reset-token and save new pass and send new jwt tokens to user
 }
@@ -86,49 +96,116 @@ pub async fn register_user(
 
     let saved_user = user_repo
         .save_new_user(&body.name, &body.email, hashed_pass)
-        .await;
+        .await
+        .map_err(|e| e)?;
 
     println!("time now after saving user {:?}", Utc::now());
 
     match saved_user {
-        Ok(user) => {
+        SavedUserType::NewUserSaved(user) => {
+            add_or_update_new_user_to_user_verification_table_and_send_email(
+                user.email.clone(),
+                &mut user_repo,
+                otp,
+                exp_duration,
+                userType::NewUser
+            )
+            .await
+            .map_err(|e| e)?;
+
+            // and return response , we may return user id in the frontend , so that when req comes back , we have user_id to find user and verify the verification token
+            // for tuple intoresponse is already implemeted
+            // so basically a response struct is created and sent it to the frontent
+            // response (status_code , content_type , body : userId(converted into json))
+            // why we wrote json wrapper , to tell intoresponse that we need to convet this uuid into json format
+            Ok(UserOkResponsesDTO {
+                status: StatusCode::CREATED,
+                message: "user registerd".to_string(),
+                data: Some(vec![user.id.to_string()]),
+            })
+        }
+        SavedUserType::ExistingNonVerifiedSavedUser(user) => {
+            add_or_update_new_user_to_user_verification_table_and_send_email(
+                user.email.clone(),
+                &mut user_repo,
+                otp,
+                exp_duration,
+                userType::ExistingNonVerifiedSavedUser
+            )
+            .await
+            .map_err(|e| e)?;
+
+            // and return response , we may return user id in the frontend , so that when req comes back , we have user_id to find user and verify the verification token
+            // for tuple intoresponse is already implemeted
+            // so basically a response struct is created and sent it to the frontent
+            // response (status_code , content_type , body : userId(converted into json))
+            // why we wrote json wrapper , to tell intoresponse that we need to convet this uuid into json format
+            Ok(UserOkResponsesDTO {
+                status: StatusCode::CREATED,
+                message: "user registerd".to_string(),
+                data: Some(vec![user.id.to_string()]),
+            })
+        }
+        SavedUserType::VerifiedUser => {
+            return Err(HttpError::new(
+                "existing user , please login instead",
+                StatusCode::CONFLICT,
+            ));
+            // if error comes in saving the user , then it might be a db , user_already exist types of error , we will return that error only
+        }
+    }
+}
+
+/**
+ * privaet function to save/update user to user_verification table and send email
+ * why update ? => if non verified registerd user tries to sign up again we will update OTP a
+ */
+async fn add_or_update_new_user_to_user_verification_table_and_send_email(
+    user_email : String,
+    user_repo: &mut AuthRepository,
+    otp: String,
+    exp_duration: DateTime<Utc>,
+    user_type: userType,
+) -> Result<bool, HttpError> {
+    match user_type {
+        userType::NewUser => {
             // save user otp details in user_emai_verification table
             user_repo
                 .add_new_user_to_user_verification_table(
                     otp.to_string(),
-                    user.email.to_string(),
+                    user_email.to_string(),
                     exp_duration,
                 )
                 .await
                 .map_err(|e| e)?;
 
             println!("time now after saving otp details {:?}", Utc::now());
-
-            // sending otp verification req to the user
-            // if we could not able to send email , error will show up
-            construct_mail(
-                user.email.clone(),
-                &[otp.to_string(), user.name.to_string()], //[otp , name_of_the_user]
-                NewUserEmailVerification.clone(),
-            )
-            .await
-            .map_err(|e| HttpError::new(e.message.to_string(), e.status))?;
-
-            println!("time now after sending email req {:?}", Utc::now());
-
-            // and return response , we may return user id in the frontend , so that when req comes back , we have user_id to find user and verify the verification token
-            // we are returning a tuple as return type
-            // for tuple intoresponse is already implemeted
-            // so basically a response struct is created and sent it to the frontent
-            // response (status_code , content_type , body : userId(converted into json))
-            // why we wrote json wrapper , to tell intoresponse that we need to convet this uuid into json format
-            Ok((StatusCode::CREATED, Json(user.id)))
         }
-        Err(e) => {
-            return Err(HttpError::new(e.message.to_string(), e.status));
-            // if error comes in saving the user , then it might be a db , user_already exist types of error , we will return that error only
+        userType::ExistingNonVerifiedSavedUser => {
+            user_repo
+                .update_user_verification_status(
+                    otp.to_string(),
+                    user_email.to_string(),
+                    exp_duration,
+                )
+                .await
+                .map_err(|e| e)?;
         }
     }
+
+    // sending otp verification req to the user
+    // if we could not able to send email , error will show up
+    construct_mail(
+        user_email.clone(),
+        &[otp.to_string(), user_email.to_string()], //[otp , name_of_the_user]
+        NewUserEmailVerification.clone(),
+    )
+    .await
+    .map_err(|e| HttpError::new(e.message.to_string(), e.status))?;
+
+    println!("time now after sending email req {:?}", Utc::now());
+
+    Ok(true)
 }
 
 /**
@@ -254,7 +331,7 @@ pub async fn login_user(
 
     // validate incoming data
     login_info.validate().map_err(|e| {
-        HttpError::bad_request("data not according to the login dto format".to_string())
+        HttpError::bad_request(e.to_string())
     })?;
 
     // trasnferring ownershit to our vars
@@ -289,7 +366,13 @@ pub async fn login_user(
         .await
         .map_err(|e| e)?;
 
-    Ok((StatusCode::CREATED, auth_token))
+    Ok((UserOkResponsesDTO{
+        status : StatusCode::ACCEPTED,
+        message : "user loggedIn successfully".to_string(),
+        data : Some(vec![auth_token , logged_in_user])
+
+
+    }))
 }
 
 /**

@@ -19,6 +19,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    user_notes (id) {
+        id -> Uuid,
+        user_id -> Uuid,
+        #[max_length = 255]
+        title -> Varchar,
+        #[max_length = 1000]
+        content -> Varchar,
+        created_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     user_reset_pass_validations (id) {
         id -> Uuid,
         #[max_length = 255]
@@ -66,8 +78,11 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(user_notes -> users (user_id));
+
 diesel::allow_tables_to_appear_in_same_query!(
     user_email_verifications,
+    user_notes,
     user_reset_pass_validations,
     user_reset_password_email_verifications,
     users,

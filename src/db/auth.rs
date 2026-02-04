@@ -21,12 +21,19 @@ use crate::schema::{
 };
 use crate::utils::password::{hash_pass, validate_pas};
 use crate::{errors::HttpError, models::Users};
-use diesel::result::Error;
+use diesel::result::{DatabaseErrorKind, Error};
 
 // manager which have db connection and have all the function impl for auth related things ,
 //  sign up , signin etc'
 pub struct AuthRepository {
     pub db_con: DbPool,
+}
+
+// when we are refistering user these users can be returned => new saved , existing non verified , existing verified
+pub enum SavedUserType {
+    NewUserSaved(Users),
+    ExistingNonVerifiedSavedUser(Users),
+    VerifiedUser,
 }
 
 // implementing all the auth functions
@@ -141,10 +148,12 @@ impl<'a> AuthRepository {
         name: impl Into<String>,
         email: impl Into<String>,
         pass: impl Into<String>,
-    ) -> Result<Users, HttpError> {
+    ) -> Result<SavedUserType, HttpError> {
+        let user_email = email.into();
+
         let new_user = NewUser {
             name: name.into(),
-            email: email.into(),
+            email: user_email.to_string(),
             verified: false,
             password: pass.into(),
         };
@@ -165,13 +174,45 @@ impl<'a> AuthRepository {
         .map_err(|e| HttpError {
             message: e.to_string(),
             status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?
-        .map_err(|e| HttpError {
-            message: e.to_string(),
-            status: StatusCode::INTERNAL_SERVER_ERROR,
         })?;
+        // .map_err(|e| match e {
+        //     Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _) => HttpError {
+        //         message: e.to_string(),
+        //         status: StatusCode::CONFLICT,
+        //     },
 
-        Ok(saved_user)
+        //     _ => HttpError {
+        //         message: e.to_string(),
+        //         status: StatusCode::INTERNAL_SERVER_ERROR,
+        //     },
+        // })?;
+        match saved_user {
+            Ok(user) => Ok(SavedUserType::NewUserSaved(user)),
+            Err(e) => match e {
+                // if user already present , confli error , then we will find user and check verification status and return enum accordingly
+                Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _) => {
+
+                    // finding user form db
+                    let existing_user = self
+                        .get_user_from_email(user_email.to_string())
+                        .await
+                        .map_err(|e| e)?;
+
+                    if (existing_user.verified) {
+                        Ok(SavedUserType::VerifiedUser)
+                    } else {
+                        Ok(SavedUserType::ExistingNonVerifiedSavedUser(existing_user))
+                    }
+                }
+
+                _ => {
+                    return Err(HttpError {
+                        message: e.to_string(),
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                    });
+                }
+            },
+        }
     }
 
     // in this we will save the newly regiters(not verifed ) user to the user_verification table (otp , email, exprity etc)
@@ -206,6 +247,62 @@ impl<'a> AuthRepository {
                 .values(&new_user_verification_data)
                 .returning(UserEmailVerifications::as_returning())
                 .get_result(&mut con)
+        })
+        .await
+        .map_err(|e| HttpError {
+            message: e.to_string(),
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+        })?
+        .map_err(|e| HttpError {
+            message: e.to_string(),
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+        })?;
+
+        Ok(true)
+    }
+
+    /**
+     * in this we will update the otp and exp of the existing non-verified user who is trying to sign up again
+     * also checking he isnt already verified
+     */
+    pub async fn update_user_verification_status(
+        &mut self,
+        otp: impl Into<String>,
+        email: impl Into<String>,
+        expiry: DateTime<Utc>,
+    ) -> Result<bool, HttpError> {
+        let ver_otp = otp.into();
+        let ver_email = email.into();
+
+        // we will pool of connection mamnagers and we will get connection manager
+        let mut con = self.db_con.get().map_err(|e| {
+            HttpError::new(
+                "error is connection pool".to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
+
+        // if user is already into user verification table
+        //  and it is not verifed
+        // it means user is registered , but not yet verified , he is trying to sign up again
+        // so we will update the user status
+        let user_verification_status = self
+            .get_user_verification_status(ver_email.clone())
+            .await
+            .map_err(|e| e)?;
+
+        if user_verification_status.used {
+            return Err(HttpError::bad_request("usr already verified".to_string()));
+        }
+
+        let save_verification_data = tokio::task::spawn_blocking(move || {
+            diesel::update(user_email_verifications::table)
+                .filter(user_email_verifications::user_email.eq(&ver_email))
+                .set((
+                    user_email_verifications::otp.eq(&ver_otp),
+                    user_email_verifications::expires_at.eq(Some(expiry.clone())),
+                ))
+                .execute(&mut con)
         })
         .await
         .map_err(|e| HttpError {
@@ -434,7 +531,7 @@ impl<'a> AuthRepository {
         .map_err(|e| match e {
             Error::NotFound => HttpError {
                 message: "user not found".to_string(),
-                status: StatusCode::INTERNAL_SERVER_ERROR,
+                status: StatusCode::NOT_FOUND,
             },
             _ => HttpError::server_error("error while fetching users table data"),
         })?;
@@ -594,6 +691,4 @@ impl<'a> AuthRepository {
 
         Ok(true)
     }
-
-    
 }
