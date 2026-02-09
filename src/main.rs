@@ -44,6 +44,8 @@ async fn main() {
     // loading env variables
     dotenv().ok();
 
+    println!("main is starting up");
+
     // see what it is doing
     // initializing tracing and logging
     tracing_subscriber::fmt()
@@ -53,6 +55,8 @@ async fn main() {
 
     // getting the db and jwt env variables
     let config: Config = Config::init();
+
+    println!("we got the db configs ");
 
     // creating pool of db connection
     let manager = ConnectionManager::<PgConnection>::new(config.database_url);
@@ -75,6 +79,7 @@ async fn main() {
     // building the router
     let app = create_router(Arc::new(app_state.clone())).layer(cors.clone());
 
+    println!("app router is being created , next is port and add");
     // server setup
     let port = env::var("PORT").expect("error while fetching the port");
     // let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
