@@ -76,9 +76,9 @@ async fn main() {
     let app = create_router(Arc::new(app_state.clone())).layer(cors.clone());
 
     // server setup
-    let port = env::var("PORT").unwrap_or_else(|_| "3000".to_string());
-    let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let addr = format!("{}:{}", host, port);
+    let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    // let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let addr = format!("{}:{}", "0.0.0.0", port);
 
     println!("this is the addr {}", addr);
     // wrting info in console
