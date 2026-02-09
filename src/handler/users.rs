@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    Extension, Json, Router, extract::Path, http::StatusCode, response::IntoResponse, routing::get,
+    Extension, Json, Router, extract::Path, http::StatusCode, response::IntoResponse, routing::{delete, get, post, put},
 };
 use diesel::result;
 use uuid::Uuid;
@@ -21,7 +21,10 @@ use crate::{
 pub fn users_handler() -> Router {
     Router::new()
     .route("/user_details", get(get_user_data))
-    // .route("/user_details", get(get_user_data))
+    .route("/get-user-notes" , get(get_users_notes))
+    .route("/create-user-note" , post(create_user_note))
+    .route("/edit-user-note/{note_id}" , put(update_user_note))
+    .route("/delete-user-note/{note_id}" , delete(delete_user_note))
 }
 
 /**
@@ -118,7 +121,7 @@ pub async fn create_user_note(
         // data.
     Ok(UserOkResponsesDTO {
         status: StatusCode::CREATED,
-        message: "new user not created".to_string(),
+        message: "new user note created".to_string(),
         data: Some(vec![noteId]),
     })
 }
@@ -193,14 +196,10 @@ pub async fn delete_user_note(
 /**
  * we will get user notes in order by created_at
  * recently created to oldest , based on created_at
- * we will get page , offset would be 5-5
- * we will return 5 notes at a time
- * we will give result in pages
 */
 pub async fn get_users_notes(
     Extension(app_state): Extension<Arc<AppState>>,
     Extension(user_obj): Extension<JwtAuthMiddleware>,
-    Path(page): Path<i64>,
 ) -> Result<impl IntoResponse, HttpError> {
     let user_id = user_obj.user.id;
 
@@ -209,7 +208,7 @@ pub async fn get_users_notes(
     let mut user_repo = UserRepository::new(db_con);
 
     let vec_of_users_notes = user_repo
-        .get_user_notes_in_pages(user_id, page)
+        .get_user_notes(user_id)
         .await
         .map_err(|e| e)?;
 

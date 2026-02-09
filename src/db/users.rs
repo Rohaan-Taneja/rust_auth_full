@@ -183,13 +183,10 @@ impl UserRepository {
      * @input => we will get page number , user id . we will have offset(which 5 set , 1st 5 or 2nd five or 3rd five , etc)
      * @return => we will return nuser notes in 5 sets of that specific offset or page
      */
-    pub async fn get_user_notes_in_pages(
+    pub async fn get_user_notes(
         &mut self,
         user_id: Uuid,
-        page: i64,
     ) -> Result<Vec<UserNotes>, HttpError> {
-        // how many to leave , before starting returning the result
-        let offset = (&page - 1) * 5;
 
         let mut con = self
             .db_con
@@ -200,8 +197,6 @@ impl UserRepository {
             user_notes::table
                 .filter(user_notes::user_id.eq(&user_id))
                 .order_by(user_notes::created_at.desc())
-                .limit(5)
-                .offset(offset)
                 .load::<UserNotes>(&mut con)
         })
         .await

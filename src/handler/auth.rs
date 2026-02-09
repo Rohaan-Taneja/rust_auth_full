@@ -416,7 +416,11 @@ pub async fn send_otp(
     .await
     .map_err(|e| HttpError::new(e.message.to_string(), StatusCode::INTERNAL_SERVER_ERROR))?;
 
-    Ok("otp sent to the email".to_string())
+    Ok(UserOkResponsesDTO{
+        status : StatusCode::OK,
+        message :"otp is been sent for the email verification".to_string(),
+        data : None
+    })
 }
 
 /**
@@ -481,12 +485,18 @@ pub async fn verify_forget_pass_emails_otp(
 
     // saving reset token details in the user_reset_pass_validations table
     auth_repo
-        .save_reset_token_details(email.clone(), hashed_reset_token, exp_at)
+        .save_reset_token_details(email.clone(), hashed_reset_token.clone(), exp_at)
         .await
         .map_err(|e| e)?;
 
     // returning reset tokens to the user for the next step validation
-    Ok((StatusCode::CREATED, Json(reset_token)))
+    Ok(
+        UserOkResponsesDTO{
+            status : StatusCode::ACCEPTED,
+            message : "email Verified".to_string(),
+            data : Some(vec![reset_token.to_string()])
+        }
+    )
 }
 
 /**
@@ -556,5 +566,9 @@ pub async fn save_new_pass(
         .await
         .map_err(|e| e)?;
 
-    Ok((StatusCode::ACCEPTED, Json(jwt_token)))
+    Ok(UserOkResponsesDTO{
+        status : StatusCode::ACCEPTED,
+        message : "user password is updated".to_string(),
+        data : Some(vec![jwt_token.to_string() , user_details.id.to_string()])
+    })
 }

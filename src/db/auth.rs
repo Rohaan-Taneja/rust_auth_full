@@ -360,9 +360,10 @@ impl<'a> AuthRepository {
             message: e.to_string(),
             status: StatusCode::INTERNAL_SERVER_ERROR,
         })?
-        .map_err(|e| HttpError {
-            message: e.to_string(),
-            status: StatusCode::INTERNAL_SERVER_ERROR,
+        .map_err(|e|  match e {
+            // db call error
+            Error::NotFound => HttpError::new("user not found", StatusCode::NOT_FOUND),
+            _ => HttpError::server_error("internal server error in diesel"),
         })?;
 
         Ok(true)

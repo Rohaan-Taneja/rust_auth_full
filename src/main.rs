@@ -66,7 +66,7 @@ async fn main() {
         .allow_origin("*".parse::<HeaderValue>().unwrap())
         .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE])
         // .allow_credentials(true)
-        .allow_methods([Method::GET, Method::POST, Method::PUT]);
+        .allow_methods([Method::GET, Method::POST, Method::PUT , Method::DELETE]);
 
     // creating app state
     let app_state = AppState { db: pool };
@@ -77,7 +77,7 @@ async fn main() {
 
     // server setup
     let port = env::var("PORT").unwrap_or_else(|_| "3000".to_string());
-    let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let addr = format!("{}:{}", host, port);
 
     println!("this is the addr {}", addr);

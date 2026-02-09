@@ -41,7 +41,7 @@ pub async fn send_mail(
         ))
         .to(Mailbox::new(
             Some("user".to_owned()),
-            "tanejarohan6@gmail.com".to_string().parse().unwrap(),
+            reciever.to_string().parse().unwrap(),
         ))
         .subject(email_subject.clone())
         .header(ContentType::TEXT_PLAIN)
